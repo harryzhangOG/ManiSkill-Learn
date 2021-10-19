@@ -4,6 +4,7 @@ warnings.simplefilter(action='ignore')
 
 import copy, cv2, numpy as np, os, os.path as osp, glob, shutil
 from h5py import File
+import part_embedding.grasping.env
 from .env_utils import build_env, true_done
 from mani_skill_learn.utils.math import split_num
 from .replay_buffer import ReplayMemory

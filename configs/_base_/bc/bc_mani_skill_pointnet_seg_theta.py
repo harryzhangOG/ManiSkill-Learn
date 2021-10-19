@@ -11,7 +11,7 @@ agent = dict(
             noise_std=1e-5,
         ),
         nn_cfg=dict(
-            type='PointNetWithInstanceInfoV0',
+            type='PointNetWithThetaSegV0',
             stack_frame=stack_frame,
             num_objs='num_objs',
             pcd_pn_cfg=dict(
@@ -38,7 +38,7 @@ agent = dict(
             state_mlp_cfg=dict(
                 type='LinearMLP',
                 norm_cfg=None,
-                mlp_spec=['agent_shape', 256, 256],
+                mlp_spec=['agent_shape + 1', 256, 256],
                 bias='auto',
                 inactivated_output=True,
                 linear_init_cfg=dict(type='xavier_init', gain=1, bias=0),

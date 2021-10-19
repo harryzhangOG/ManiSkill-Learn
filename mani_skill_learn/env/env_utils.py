@@ -2,6 +2,7 @@ from copy import deepcopy
 
 from gym.core import gym
 from gym.envs import registry
+import part_embedding.grasping.env
 
 from mani_skill_learn.utils.data import get_shape
 from mani_skill_learn.utils.meta import Registry, build_from_cfg
@@ -74,6 +75,11 @@ def make_gym_env(env_name, unwrapped=False, time_horizon_factor=1, stack_frame=1
     elif env_type == 'mujoco':
         env = MujocoWrapper(env)
     elif env_type == 'mani_skill':
+        obs_mode = kwargs.get('obs_mode', None)
+        reward_type = kwargs.get('reward_type', None)
+        env.set_env_mode(obs_mode=obs_mode, reward_type=reward_type)
+        env = SapienRLWrapper(env, stack_frame)
+    elif env_type == 'part_embedding':
         obs_mode = kwargs.get('obs_mode', None)
         reward_type = kwargs.get('reward_type', None)
         env.set_env_mode(obs_mode=obs_mode, reward_type=reward_type)

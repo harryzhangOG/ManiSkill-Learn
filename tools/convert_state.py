@@ -6,13 +6,17 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
+import sys
+sys.path.append(os.getcwd())
 
 import os.path as osp
 from multiprocessing import Process
 
 import h5py
+import part_embedding.grasping.env
 
-from mani_skill_learn.env import make_gym_env, ReplayMemory
+from mani_skill_learn.env import ReplayMemory
+from mani_skill_learn.env.env_utils import make_gym_env
 from mani_skill_learn.utils.fileio import load_h5_as_dict_array, merge_h5_trajectory
 from mani_skill_learn.utils.data import sample_element_in_dict_array, compress_size
 from mani_skill_learn.utils.meta import get_total_memory, flush_print
@@ -130,7 +134,7 @@ def parse_args():
                         help='The generated trajectory with some policies')
     parser.add_argument('--max-num-traj', default=-1, type=int, help='The generated trajectory with some policies')
     parser.add_argument('--obs-mode', default='pointcloud', type=str, help='The mode of the observer')
-    parser.add_argument('--num-procs', default=10, type=int, help='The mode of the observer')
+    parser.add_argument('--num-procs', default=1, type=int, help='The mode of the observer')
 
     # Convert setting
     parser.add_argument('--add-random', default=False, action='store_true', help='Add random trajectory')
@@ -154,14 +158,20 @@ def main():
     flush_print(f'Num of trajs {len(keys)}', args.num_procs)
     processes = []
     from copy import deepcopy
-    for i, x in enumerate(running_steps):
-        p = Process(target=convert_state_representation, args=(deepcopy(keys[:x]), args, i, os.getpid()))
-        keys = keys[x:]
-        processes.append(p)
-        p.start()
+    #for i, x in enumerate(running_steps):
+    #    p = Process(target=convert_state_representation, args=(deepcopy(keys[:x]), args, i, os.getpid()))
+    #    keys = keys[x:]
+    #    processes.append(p)
+    #    p.start()
 
-    for p in processes:
-        p.join()
+    #for p in processes:
+    #    p.join()
+    for i, x in enumerate(running_steps):
+        convert_state_representation(deepcopy(keys[:x]), args, i, os.getpid())
+        keys = keys[x:]
+      #  processes.append(p)
+
+
     files = []
     for worker_id in range(len(running_steps)):
         tmp_h5 = osp.join(tmp_folder_in_docker, f'{worker_id}.h5')

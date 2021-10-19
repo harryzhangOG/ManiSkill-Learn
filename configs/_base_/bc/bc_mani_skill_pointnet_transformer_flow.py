@@ -1,5 +1,6 @@
 log_level = 'INFO'
 stack_frame = 1
+num_heads = 4
 
 agent = dict(
     type='BC',
@@ -11,7 +12,7 @@ agent = dict(
             noise_std=1e-5,
         ),
         nn_cfg=dict(
-            type='PointNetWithInstanceInfoV0',
+            type='PointNetWithFlowV0',
             stack_frame=stack_frame,
             num_objs='num_objs',
             pcd_pn_cfg=dict(
@@ -27,7 +28,7 @@ agent = dict(
                 mlp_cfg=dict(
                     type='LinearMLP',
                     norm_cfg=None,
-                    mlp_spec=[256 * stack_frame, 256, 256],
+                    mlp_spec=[256 * stack_frame, 256, 128],
                     bias='auto',
                     inactivated_output=True,
                     linear_init_cfg=dict(type='xavier_init', gain=1, bias=0),
@@ -42,11 +43,39 @@ agent = dict(
                 bias='auto',
                 inactivated_output=True,
                 linear_init_cfg=dict(type='xavier_init', gain=1, bias=0),
+            ),                        
+            transformer_cfg=dict(
+                type='TransformerEncoder',
+                block_cfg=dict(
+                    attention_cfg=dict(
+                        type='MultiHeadSelfAttention',
+                        embed_dim=256,
+                        num_heads=num_heads,
+                        latent_dim=32,
+                        dropout=0.1,
+                    ),
+                    mlp_cfg=dict(
+                        type='LinearMLP',
+                        norm_cfg=None,
+                        mlp_spec=[256, 1024, 256],
+                        bias='auto',
+                        inactivated_output=True,
+                        linear_init_cfg=dict(type='xavier_init', gain=1, bias=0),
+                    ),
+                    dropout=0.1,
+                ),
+                pooling_cfg=dict(
+                    embed_dim=256,
+                    num_heads=num_heads,
+                    latent_dim=32,
+                ),
+                mlp_cfg=None,
+                num_blocks=6,
             ),
             final_mlp_cfg=dict(
                 type='LinearMLP',
                 norm_cfg=None,
-                mlp_spec=['256 * (num_objs + 3)', 256, 'action_shape'],
+                mlp_spec=[256, 256, 'action_shape'],
                 bias='auto',
                 inactivated_output=True,
                 linear_init_cfg=dict(type='xavier_init', gain=1, bias=0),

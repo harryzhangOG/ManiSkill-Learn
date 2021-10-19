@@ -33,7 +33,7 @@ class PointNetV0(PointBackbone):
         :param conv_cfg: configuration for building point feature extractor
         :param mlp_cfg: configuration for building global feature extractor
         :param stack_frame: num of stacked frames in the input
-        :param subtract_mean_coords: subtract_mean_coords trick 
+        :param subtract_mean_coords: subtract_mean_coords trick
             subtract the mean of xyz from each point's xyz, and then concat the mean to the original xyz;
             we found concatenating the mean pretty crucial
         :param max_mean_mix_aggregation: max_mean_mix_aggregation trick
@@ -60,6 +60,10 @@ class PointNetV0(PointBackbone):
         if isinstance(pcd, dict):
             pcd = pcd.copy()
             mask = torch.ones_like(pcd['xyz'][..., :1]) if mask is None else mask[..., None]  # [B, N, 1]
+            if 'flow' in pcd.keys():
+                flow = pcd.pop('flow')
+            if 'd_theta' in pcd.keys():
+                theta = pcd.pop('d_theta')
             if self.subtract_mean_coords:
                 # Use xyz - mean xyz instead of original xyz
                 xyz = pcd['xyz']  # [B, N, 3]
@@ -137,7 +141,7 @@ class PointNetWithInstanceInfoV0(PointBackbone):
             obj_masks.append(seg[..., i])
         obj_masks.append(torch.ones_like(seg[..., 0])) # the entire point cloud
 
-        obj_features = [] 
+        obj_features = []
         obj_features.append(self.state_mlp(state))
         for i in range(len(obj_masks)):
             obj_mask = obj_masks[i]
@@ -148,7 +152,158 @@ class PointNetWithInstanceInfoV0(PointBackbone):
             new_seg = torch.stack(obj_masks, dim=-1)  # [B, N, NO + 2]
             non_empty = (new_seg > 0.5).any(1).float()  # [B, NO + 2]
             non_empty = torch.cat([torch.ones_like(non_empty[:,:1]), non_empty], dim=-1) # [B, NO + 3]
-            obj_attn_mask = non_empty[..., None] * non_empty[:, None]  # [B, NO + 3, NO + 3]           
+            obj_attn_mask = non_empty[..., None] * non_empty[:, None]  # [B, NO + 3, NO + 3]
+            global_feature = self.attn(obj_features, obj_attn_mask)  # [B, F]
+        else:
+            global_feature = torch.cat(obj_features, dim=-1)  # [B, (NO + 3) * F]
+        # print('Y', global_feature.shape)
+        x = self.global_mlp(global_feature)
+        # print(x)
+        return x
+
+@BACKBONES.register_module()
+class PointNetWithThetaSegV0(PointBackbone):
+    def __init__(self, pcd_pn_cfg, state_mlp_cfg, final_mlp_cfg, stack_frame, num_objs, transformer_cfg=None):
+        """
+        PointNet with instance segmentation masks.
+        There is one MLP that processes the agent state, and (num_obj + 2) PointNets that process background points
+        (where all masks = 0), points from some objects (where some mask = 1), and the entire point cloud, respectively.
+
+        For points of the same object, the same PointNet processes each frame and concatenates the
+        representations from all frames to form the representation of that point type.
+
+        Finally representations from the state and all types of points are passed through final attention
+        to output a vector of representation.
+
+        :param pcd_pn_cfg: configuration for building point feature extractor
+        :param state_mlp_cfg: configuration for building the MLP that processes the agent state vector
+        :param stack_frame: num of the frame in the input
+        :param num_objs: dimension of the segmentation mask
+        :param transformer_cfg: if use transformer to aggregate the features from different objects
+        """
+        super(PointNetWithThetaSegV0, self).__init__()
+
+        self.pcd_pns = nn.ModuleList([build_backbone(pcd_pn_cfg) for i in range(num_objs + 2)])
+        self.attn = build_backbone(transformer_cfg) if transformer_cfg is not None else None
+        self.state_mlp = build_backbone(state_mlp_cfg)
+        self.global_mlp = build_backbone(final_mlp_cfg)
+
+        self.stack_frame = stack_frame
+        self.num_objs = num_objs
+        assert self.num_objs > 0
+
+    def forward_raw(self, pcd, state):
+        """
+        :param pcd: point cloud
+                xyz: shape (l, n_points, 3)
+                rgb: shape (l, n_points, 3)
+                seg:  shape (l, n_points, n_seg)
+                d_theta: shape(l, 1)
+        :param state: shape (l, state_shape) state and other information of robot
+        :return: [B,F] [batch size, final output]
+        """
+        assert isinstance(pcd, dict) and 'xyz' in pcd and 'seg' in pcd
+        pcd = pcd.copy()
+        seg = pcd.pop('seg')  # [B, N, NO]
+        xyz = pcd['xyz']  # [B, N, 3]
+        theta = pcd.pop('d_theta')
+        obj_masks = [1. - (torch.sum(seg, dim=-1) > 0.5).type(xyz.dtype)]  # [B, N], the background mask
+        for i in range(self.num_objs):
+            obj_masks.append(seg[..., i])
+        obj_masks.append(torch.ones_like(seg[..., 0])) # the entire point cloud
+
+        obj_features = []
+        B, N = state.shape
+        theta = theta.view(B, -1)
+        state_aug = torch.cat([state, theta], dim=-1)  # [B, N, CS]
+        obj_features.append(self.state_mlp(state_aug))
+        for i in range(len(obj_masks)):
+            obj_mask = obj_masks[i]
+            obj_features.append(self.pcd_pns[i].forward_raw(pcd, state, obj_mask))  # [B, F]
+            # print('X', obj_features[-1].shape)
+        if self.attn is not None:
+            obj_features = torch.stack(obj_features, dim=-2)  # [B, NO + 3, F]
+            new_seg = torch.stack(obj_masks, dim=-1)  # [B, N, NO + 2]
+            non_empty = (new_seg > 0.5).any(1).float()  # [B, NO + 2]
+            non_empty = torch.cat([torch.ones_like(non_empty[:,:1]), non_empty], dim=-1) # [B, NO + 3]
+            obj_attn_mask = non_empty[..., None] * non_empty[:, None]  # [B, NO + 3, NO + 3]
+            global_feature = self.attn(obj_features, obj_attn_mask)  # [B, F]
+        else:
+            global_feature = torch.cat(obj_features, dim=-1)  # [B, (NO + 3) * F]
+        # print('Y', global_feature.shape)
+        x = self.global_mlp(global_feature)
+        # print(x)
+        return x
+
+@BACKBONES.register_module()
+class PointNetWithFlowV0(PointBackbone):
+    def __init__(self, pcd_pn_cfg, state_mlp_cfg, final_mlp_cfg, stack_frame, num_objs, transformer_cfg=None):
+        """
+        PointNet with instance segmentation masks.
+        There is one MLP that processes the agent state, and (num_obj + 2) PointNets that process background points
+        (where all masks = 0), points from some objects (where some mask = 1), and the entire point cloud, respectively.
+
+        For points of the same object, the same PointNet processes each frame and concatenates the
+        representations from all frames to form the representation of that point type.
+
+        Finally representations from the state and all types of points are passed through final attention
+        to output a vector of representation.
+
+        :param pcd_pn_cfg: configuration for building point feature extractor
+        :param state_mlp_cfg: configuration for building the MLP that processes the agent state vector
+        :param stack_frame: num of the frame in the input
+        :param num_objs: dimension of the segmentation mask
+        :param transformer_cfg: if use transformer to aggregate the features from different objects
+        """
+        super(PointNetWithFlowV0, self).__init__()
+
+        self.pcd_pns = nn.ModuleList([build_backbone(pcd_pn_cfg) for i in range(num_objs + 2)])
+        self.flow_pns = nn.ModuleList([build_backbone(pcd_pn_cfg) for i in range(num_objs + 2)])
+        self.attn = build_backbone(transformer_cfg) if transformer_cfg is not None else None
+        self.state_mlp = build_backbone(state_mlp_cfg)
+        self.global_mlp = build_backbone(final_mlp_cfg)
+
+        self.stack_frame = stack_frame
+        self.num_objs = num_objs
+        assert self.num_objs > 0
+
+    def forward_raw(self, pcd, state):
+        """
+        :param pcd: point cloud
+                xyz: shape (l, n_points, 3)
+                rgb: shape (l, n_points, 3)
+                seg:  shape (l, n_points, n_seg)
+                d_theta: shape(l, 1)
+        :param state: shape (l, state_shape) state and other information of robot
+        :return: [B,F] [batch size, final output]
+        """
+        assert isinstance(pcd, dict) and 'xyz' in pcd and 'seg' in pcd
+        pcd = pcd.copy()
+        seg = pcd.pop('seg')  # [B, N, NO]
+        xyz = pcd['xyz']  # [B, N, 3]
+        pcd.pop('d_theta')
+        flow = pcd.pop('flow')
+        obj_masks = [1. - (torch.sum(seg, dim=-1) > 0.5).type(xyz.dtype)]  # [B, N], the background mask
+        for i in range(self.num_objs):
+            obj_masks.append(seg[..., i])
+        obj_masks.append(torch.ones_like(seg[..., 0])) # the entire point cloud
+
+        obj_features = []
+        obj_features.append(self.state_mlp(state))
+        for i in range(len(obj_masks)):
+            obj_mask = obj_masks[i]
+            pcd_feat = self.pcd_pns[i].forward_raw(pcd, state, obj_mask)
+            flow_cd = {'xyz': flow, 'rgb': pcd['rgb']}
+            flow_feat = self.flow_pns[i].forward_raw(flow_cd, state, obj_mask)
+            overall_feat = torch.cat([pcd_feat, flow_feat], dim=-1)
+            obj_features.append(overall_feat)  # [B, 2*F]
+            # print('X', obj_features[-1].shape)
+        if self.attn is not None:
+            obj_features = torch.stack(obj_features, dim=-2)  # [B, NO + 3, F]
+            new_seg = torch.stack(obj_masks, dim=-1)  # [B, N, NO + 2]
+            non_empty = (new_seg > 0.5).any(1).float()  # [B, NO + 2]
+            non_empty = torch.cat([torch.ones_like(non_empty[:,:1]), non_empty], dim=-1) # [B, NO + 3]
+            obj_attn_mask = non_empty[..., None] * non_empty[:, None]  # [B, NO + 3, NO + 3]
             global_feature = self.attn(obj_features, obj_attn_mask)  # [B, F]
         else:
             global_feature = torch.cat(obj_features, dim=-1)  # [B, (NO + 3) * F]

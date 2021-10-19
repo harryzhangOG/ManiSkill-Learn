@@ -16,6 +16,7 @@ def process_mani_skill_base(obs, env=None):
         rgb = obs[obs_mode]['rgb']
         xyz = obs[obs_mode]['xyz']
         seg = obs[obs_mode]['seg']
+        flow = obs[obs_mode]['flow']
 
         # Given that xyz are already in world-frame, then filter the point clouds that belong to ground.
         mask = (xyz[:, 2] > 1e-3)
@@ -42,6 +43,7 @@ def process_mani_skill_base(obs, env=None):
         chosen_seg = []
         chosen_rgb = []
         chosen_xyz = []
+        chosen_flow = []
         chosen_mask_pts = 0
         for i in range(seg.shape[1]):
             if num_pts[i] == 0:
@@ -52,6 +54,7 @@ def process_mani_skill_base(obs, env=None):
             chosen_seg.append(seg[shuffle_indices])
             chosen_rgb.append(rgb[shuffle_indices])
             chosen_xyz.append(xyz[shuffle_indices])
+            chosen_flow.append(flow[shuffle_indices])
         sample_background_pts = tot_pts - chosen_mask_pts
 
         if seg.shape[1] == 1:
@@ -64,10 +67,12 @@ def process_mani_skill_base(obs, env=None):
         chosen_seg.append(seg[shuffle_indices])
         chosen_rgb.append(rgb[shuffle_indices])
         chosen_xyz.append(xyz[shuffle_indices])
+        chosen_flow.append(flow[shuffle_indices])
 
         chosen_seg = np.concatenate(chosen_seg, axis=0)
         chosen_rgb = np.concatenate(chosen_rgb, axis=0)
         chosen_xyz = np.concatenate(chosen_xyz, axis=0)
+        chosen_flow = np.concatenate(chosen_flow, axis=0)
         if chosen_seg.shape[0] < tot_pts:
             pad_pts = tot_pts - chosen_seg.shape[0]
             chosen_seg = np.concatenate([chosen_seg, np.zeros([pad_pts, chosen_seg.shape[1]]).astype(chosen_seg.dtype)],
@@ -76,9 +81,12 @@ def process_mani_skill_base(obs, env=None):
                                         axis=0)
             chosen_xyz = np.concatenate([chosen_xyz, np.zeros([pad_pts, chosen_xyz.shape[1]]).astype(chosen_xyz.dtype)],
                                         axis=0)
+            chosen_flow = np.concatenate([chosen_flow, np.zeros([pad_pts, chosen_flow.shape[1]]).astype(chosen_flow.dtype)],
+                                        axis=0)
         obs[obs_mode]['seg'] = chosen_seg
         obs[obs_mode]['xyz'] = chosen_xyz
         obs[obs_mode]['rgb'] = chosen_rgb
+        obs[obs_mode]['flow'] = chosen_flow
         return obs
     else:
         print(f'Unknown observation mode {obs_mode}')

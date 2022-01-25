@@ -71,7 +71,7 @@ class SapienRLWrapper(ObservationWrapper):
 
     def _get_buffer_content(self):
         axis = 0 if self.obs_mode == 'pointcloud' else -1
-        return {key: np.concatenate(self.buffered_data[key], axis=axis) for key in self.buffered_data}
+        return {key: np.concatenate(self.buffered_data[key], axis=axis) for key in self.buffered_data if key != 'flow_all'}
 
     def observation(self, observation):
         if self.obs_mode == "state":

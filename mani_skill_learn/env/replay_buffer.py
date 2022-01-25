@@ -56,7 +56,14 @@ class ReplayMemory:
             self.push(**sample_element_in_dict_array(kwargs, i))
 
     def sample(self, batch_size):
-        batch_idx = np.random.randint(low=0, high=len(self), size=batch_size)
+        # batch_idx = np.random.randint(low=0, high=len(self), size=batch_size)
+        def random_chunk(lst, chunk_size):
+            import math
+            import random
+            nb_chunks = int(math.ceil(len(lst)/chunk_size))
+            choice = random.randrange(nb_chunks) # 0 <= choice < nb_chunks
+            return lst[choice*chunk_size:(choice+1)*chunk_size]
+        batch_idx = random_chunk(np.arange(len(self)), batch_size)
         return sample_element_in_dict_array(self.memory, batch_idx)
 
     def tail_mean(self, num):

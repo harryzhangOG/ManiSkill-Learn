@@ -70,12 +70,14 @@ class PointNetV0RealWorld(PointBackbone):
                 pcd['mean_xyz'] = mean_xyz.repeat(1, xyz.shape[1], 1)
                 pcd['xyz'] = xyz - mean_xyz
             # Concat all elements like xyz, rgb, seg mask, mean_xyz
-            pcd = torch.cat(dict_to_seq(pcd)[1], dim=-1)
+            # pcd = torch.cat(dict_to_seq(pcd)[1], dim=-1)
+            pcd = torch.as_tensor(pcd['xyz'])
         else:
+            pcd = torch.as_tensor(pcd)
             mask = torch.ones_like(pcd[..., :1]) if mask is None else mask[..., None]  # [B, N, 1]
 
         B, N = pcd.shape[:2]
-        state = torch.as_tensor(np.zeros((B, 16))).float().to('cuda:1')
+        state = torch.as_tensor(np.zeros((B, 25))).float().to('cuda:1')
         state = torch.cat([pcd, state[:, None].repeat(1, N, 1)], dim=-1)
         point_feature = self.conv_mlp(state.transpose(2, 1)).transpose(2, 1)  # [B, N, CF]
         # [B, K, N / K, CF]

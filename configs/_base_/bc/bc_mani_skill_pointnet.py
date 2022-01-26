@@ -11,7 +11,7 @@ agent = dict(
             noise_std=1e-5,
         ),
         nn_cfg=dict(
-            type='PointNetV0RealWorld',
+            type='PointNetV0',
             conv_cfg=dict(
                 type='ConvMLP',
                 norm_cfg=None,

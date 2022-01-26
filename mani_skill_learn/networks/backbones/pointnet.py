@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import numpy as np
 from mani_skill_learn.utils.data import dict_to_seq
 from mani_skill_learn.utils.torch import masked_average, masked_max
 from ..builder import BACKBONES, build_backbone
@@ -75,7 +75,8 @@ class PointNetV0RealWorld(PointBackbone):
             mask = torch.ones_like(pcd[..., :1]) if mask is None else mask[..., None]  # [B, N, 1]
 
         B, N = pcd.shape[:2]
-        state = pcd
+        state = torch.as_tensor(np.zeros((B, 16))).float().to('cuda:1')
+        state = torch.cat([pcd, state[:, None].repeat(1, N, 1)], dim=-1)
         point_feature = self.conv_mlp(state.transpose(2, 1)).transpose(2, 1)  # [B, N, CF]
         # [B, K, N / K, CF]
         point_feature = point_feature.view(B, self.stack_frame, N // self.stack_frame, point_feature.shape[-1])
